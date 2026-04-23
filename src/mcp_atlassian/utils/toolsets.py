@@ -100,6 +100,47 @@ JIRA_TOOLSETS: dict[str, ToolsetDefinition] = {
         description="Development info (branches, PRs, commits)",
         default=False,
     ),
+    # --- DC user toolsets (write-capable, opt-in) ---
+    "jira_user_assets": ToolsetDefinition(
+        name="jira_user_assets",
+        description=(
+            "Insight/Assets CRUD (DC): IQL search, object get/create/update/"
+            "delete, references, attach/detach to Jira issue"
+        ),
+        default=False,
+    ),
+    "jira_user_sprints": ToolsetDefinition(
+        name="jira_user_sprints",
+        description=(
+            "Sprint lifecycle: start, complete, delete, move-to-backlog, rank "
+            "(complements upstream create/update/add_issues_to_sprint)"
+        ),
+        default=False,
+    ),
+    "jira_user_issues": ToolsetDefinition(
+        name="jira_user_issues",
+        description=(
+            "Issue pro-user actions: votes, attachment upload/delete, delete "
+            "comment/worklog, JQL-driven bulk assign/label/comment, clone"
+        ),
+        default=False,
+    ),
+    "jira_user_jsm": ToolsetDefinition(
+        name="jira_user_jsm",
+        description=(
+            "Jira Service Management user flows: create customer request, "
+            "approve/decline approval, public/internal comment"
+        ),
+        default=False,
+    ),
+    "jira_user_filters": ToolsetDefinition(
+        name="jira_user_filters",
+        description=(
+            "Personal filters & dashboards: create/update/delete/share filter, "
+            "create/update/copy dashboard"
+        ),
+        default=False,
+    ),
 }
 
 # --- Confluence toolsets (6) ---

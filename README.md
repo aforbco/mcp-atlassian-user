@@ -97,6 +97,42 @@ Documentation is also available in [llms.txt format](https://llmstxt.org/), whic
 
 **72 tools total** — See [Tools Reference](https://mcp-atlassian.soomiles.com/docs/tools-reference) for the complete list.
 
+## Jira DC User toolset (this fork)
+
+This fork adds **39 write-capable user-facing tools** for Jira Data Center — everything a day-to-day user needs that isn't in the upstream surface. All write operations honour `READ_ONLY_MODE=true` and carry `destructiveHint` annotations where appropriate.
+
+| Toolset | Tools | What it exposes |
+|---------|-------|-----------------|
+| `jira_user_assets` | 14 | Insight/Assets full CRUD: IQL search, get/create/update/delete object, attribute/reference helpers, attach/detach Assets to Jira issues |
+| `jira_user_sprints` | 5 | Sprint lifecycle: `start_sprint`, `complete_sprint`, `delete_sprint`, `move_issues_to_backlog`, `rank_issues` — complements upstream `create_sprint` / `update_sprint` / `add_issues_to_sprint` |
+| `jira_user_issues` | 10 | `add_vote` / `remove_vote`, `upload_attachment` (base64) / `delete_attachment`, `delete_comment`, `delete_worklog`, JQL-driven `bulk_assign` / `bulk_label` / `bulk_add_comment`, `clone_issue` |
+| `jira_user_jsm` | 3 | JSM user flows: `jsm_create_request`, `jsm_answer_approval` (approve/decline), `jsm_add_request_comment` (public/internal) |
+| `jira_user_filters` | 7 | Personal filters (create/update/delete/share) + dashboards (create/update/copy) |
+
+### Verified against official DC documentation
+
+Every endpoint was verified against the Atlassian DC docs before coding — key shape details that trip up naive implementations are honoured:
+
+* Insight/Assets IQL search is `GET /aql/objects?qlQuery=…`, not a POST — base path defaults to `/rest/assets/1.0` with `JIRA_INSIGHT_BASE_PATH` for older JSM mounts.
+* Each Insight attribute payload includes `operationType: 0` (ADD); list-types uses the mandatory `/flat` suffix.
+* Sprint state transitions require `startDate` + `endDate` together with `state:"active"`.
+* Rank endpoint is `PUT /rest/agile/1.0/issue/rank` (not POST); filter share permission uses `groupname` (DC) not `group.name` (Cloud).
+* Attachment upload sends `X-Atlassian-Token: no-check` to pass XSRF protection.
+* JSM uses DC usernames (not Cloud accountIds).
+
+### Omitted endpoints (documented as non-existent in DC REST)
+
+* **Bulk edit** — no `/rest/api/2/issue/bulk/edit` on DC; `bulk_*` tools here loop per-issue with a 500-cap.
+* **Move issue to another project** — UI-only per the platform docs.
+* **Convert issue ↔ subtask** — [JRASERVER-27893](https://jira.atlassian.com/browse/JRASERVER-27893) tracks the missing endpoint; only achievable via ScriptRunner.
+
+### Enabling it
+
+1. Authenticate as usual (`JIRA_URL` + `JIRA_PERSONAL_TOKEN`). The Insight client re-uses mcp-atlassian's authenticated session.
+2. Set `TOOLSETS` to include what you need, e.g.:
+   `TOOLSETS=default,jira_user_assets,jira_user_sprints,jira_user_issues`
+3. All user toolsets are **opt-in** (`default=false`) and won't appear unless enabled.
+
 ## Security
 
 Never share API tokens. Keep `.env` files secure. See [SECURITY.md](SECURITY.md).
