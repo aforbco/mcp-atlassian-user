@@ -1,11 +1,11 @@
 # Tools reference — mcp-atlassian-user
 
-60 write-capable user-facing tools for Jira Data Center, on top of 51 inherited upstream tools.
+64 write-capable user-facing tools for Jira Data Center, on top of 51 inherited upstream tools.
 
-Auto-generated from tool registrations on `feat/jira-user-toolset-v2`.
+Auto-generated from tool registrations on `feat/jira-user-toolset-v3`.
 Source: [`src/mcp_atlassian/servers/jira_user.py`](src/mcp_atlassian/servers/jira_user.py).
 
-**109 tools total across 24 toolsets.**
+**113 tools total across 25 toolsets.**
 
 Tool names below include the `jira_` / `confluence_` prefix that FastMCP mounts automatically.
 
@@ -119,6 +119,15 @@ Kind legend: **read** = read-only · **write** = state-changing (disabled under 
 | `jira_get_my_preference` | read | GET /rest/api/2/mypreferences?key=… — one key per call (raw string). |
 | `jira_get_myself` | read | GET /rest/api/2/myself — current user profile + (expanded) groups/roles. |
 | `jira_list_favourite_filters` | read | GET /rest/api/2/filter/favourite — user's starred filters (DC). |
+
+### `jira_user_git` — Git dev-panel view (4)
+
+| Tool | Kind | Description |
+|---|---|---|
+| `jira_get_issue_git_panel` | read | Everything the issue view's Git panel displays, unified across |
+| `jira_get_issue_git_summary` | read | Short Git panel summary for an issue — counts of pull requests, |
+| `jira_list_issue_branches` | read | ``GET /rest/gitplugin/1.0/issues/branches?key=<key>`` — branches |
+| `jira_list_issue_commits` | read | ``GET /rest/gitplugin/1.0/issues/{key}/commits`` — commits the |
 
 ---
 

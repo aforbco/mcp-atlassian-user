@@ -2139,3 +2139,246 @@ def register_user_tools(jira_mcp: Any) -> None:  # noqa: C901 — many decorator
         except InsightError as exc:
             return _err(f"get_my_preference failed: {exc}", status=exc.status)
         return _fmt({"key": key, "value": data})
+
+    # =====================================================================
+    # Git dev-panel view
+    #
+    # Answers user questions like "how many MRs are open for HR-123", "which
+    # repo is this ticket touching", "who pushed commits against it". Uses:
+    #
+    #   * ``/rest/dev-status/1.0/issue/summary`` + ``/detail`` — the internal
+    #     API the issue view itself calls to render its Git panel. Official
+    #     KB: "Access Git Repo Commit Data via Jira REST API in Development
+    #     Panel (Data Center)". Requires a numeric issue id (not key) and a
+    #     case-sensitive ``applicationType`` (``stash`` / ``GitHub`` /
+    #     ``githube`` / ``gitlab`` / ``bitbucket``). We look up providers
+    #     dynamically from ``/summary`` and then iterate ``/detail``.
+    #
+    #   * ``/rest/gitplugin/1.0/`` — BigBrassBand Git Integration for Jira
+    #     (Marketplace app 4984). Gives richer commit data (full SHAs,
+    #     author emails, optional file diffs) than dev-status. Not to be
+    #     confused with ``/rest/jgitplugin/1.0/``, which is an unrelated
+    #     older plugin.
+    # =====================================================================
+
+    async def _resolve_issue_id(client: InsightClient, issue_key_or_id: str) -> str:
+        """Return the numeric issue id for an issue key/id.
+
+        Dev-status ``/issue/summary`` and ``/issue/detail`` both require a
+        numeric id, not a key. Accept either and resolve lazily when a key
+        is supplied.
+        """
+        key = issue_key_or_id.strip()
+        if key.isdigit():
+            return key
+        meta = client.get(f"/rest/api/2/issue/{key}", params={"fields": "id"})
+        issue_id = (meta or {}).get("id")
+        if not issue_id:
+            raise InsightError(f"could not resolve issue id for '{key}'")
+        return str(issue_id)
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_git"},
+        annotations={"title": "Issue Git Panel — Summary", "readOnlyHint": True},
+    )
+    async def get_issue_git_summary(
+        ctx: Context,
+        issue_key: Annotated[
+            str,
+            Field(description="Issue key, e.g. 'HR-123'. Numeric ids also work."),
+        ],
+    ) -> str:
+        """Short Git panel summary for an issue — counts of pull requests,
+        branches, commits and repositories across all connected providers.
+
+        Calls ``/rest/dev-status/1.0/issue/summary?issueId=<id>``. The
+        response also contains a ``byInstanceType`` map whose keys are the
+        exact provider codes wired up on this instance — useful when the
+        team can't remember whether "gitlab" or "GitLabServer" is the
+        right ``application_type`` for follow-up detail calls.
+        """
+        fetcher = await get_jira_fetcher(ctx)
+        client = InsightClient(fetcher)
+        try:
+            issue_id = await _resolve_issue_id(client, issue_key)
+            return _fmt(
+                client.get(
+                    "/rest/dev-status/1.0/issue/summary",
+                    params={"issueId": issue_id},
+                )
+            )
+        except InsightError as exc:
+            return _err(f"get_issue_git_summary failed: {exc}", status=exc.status)
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_git"},
+        annotations={"title": "Issue Git Panel — Full", "readOnlyHint": True},
+    )
+    async def get_issue_git_panel(
+        ctx: Context,
+        issue_key: Annotated[
+            str,
+            Field(description="Issue key (or numeric id)."),
+        ],
+        data_types: Annotated[
+            str,
+            Field(
+                description=(
+                    "Comma-separated dev-status data types to fetch: "
+                    "'repository', 'branch', 'pullrequest' (singular). "
+                    "Default gets all three."
+                )
+            ),
+        ] = "repository,branch,pullrequest",
+    ) -> str:
+        """Everything the issue view's Git panel displays, unified across
+        providers. Discovers providers dynamically from ``/summary`` and
+        then loops ``/detail`` across each ``applicationType`` × selected
+        ``dataType``. Returns a single object of the shape:
+
+        ``{"issue_key": "...", "providers": [...], "sections": {
+            "repository": {...}, "branch": {...}, "pullrequest": {...}}}``
+
+        so the LLM can answer "how many open MRs / which repo / which
+        branch does this ticket touch" in one call.
+        """
+        requested_types = _split_csv(data_types) or [
+            "repository",
+            "branch",
+            "pullrequest",
+        ]
+        allowed = {"repository", "branch", "pullrequest"}
+        bad = [t for t in requested_types if t not in allowed]
+        if bad:
+            return _err(
+                f"unknown data_types: {bad}. Use 'repository', 'branch', 'pullrequest'."
+            )
+        fetcher = await get_jira_fetcher(ctx)
+        client = InsightClient(fetcher)
+        try:
+            issue_id = await _resolve_issue_id(client, issue_key)
+            summary = client.get(
+                "/rest/dev-status/1.0/issue/summary",
+                params={"issueId": issue_id},
+            )
+        except InsightError as exc:
+            return _err(f"get_issue_git_panel summary failed: {exc}", status=exc.status)
+
+        providers_map = (
+            (summary.get("summary") or {}).get("byInstanceType") or {}
+        ) if isinstance(summary, dict) else {}
+        providers = sorted(providers_map.keys())
+        if not providers:
+            return _fmt(
+                {
+                    "issue_key": issue_key,
+                    "providers": [],
+                    "note": (
+                        "No Git providers wired up for this issue — dev-status "
+                        "returned an empty byInstanceType map."
+                    ),
+                    "raw_summary": summary,
+                }
+            )
+
+        sections: dict[str, Any] = {}
+        errors: list[dict[str, Any]] = []
+        for data_type in requested_types:
+            per_provider: dict[str, Any] = {}
+            for provider in providers:
+                try:
+                    per_provider[provider] = client.get(
+                        "/rest/dev-status/1.0/issue/detail",
+                        params={
+                            "issueId": issue_id,
+                            "applicationType": provider,
+                            "dataType": data_type,
+                        },
+                    )
+                except InsightError as exc:
+                    errors.append(
+                        {
+                            "provider": provider,
+                            "data_type": data_type,
+                            "error": str(exc),
+                            "status": exc.status,
+                        }
+                    )
+            sections[data_type] = per_provider
+
+        return _fmt(
+            {
+                "issue_key": issue_key,
+                "issue_id": issue_id,
+                "providers": providers,
+                "sections": sections,
+                "errors": errors,
+                "summary": summary,
+            }
+        )
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_git"},
+        annotations={"title": "List Issue Commits (GIJ)", "readOnlyHint": True},
+    )
+    async def list_issue_commits(
+        ctx: Context,
+        issue_key: Annotated[str, Field(description="Issue key, e.g. 'HR-123'.")],
+        show_files: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Include each commit's changed files + change type. "
+                    "Much larger response; leave false for a quick list."
+                )
+            ),
+        ] = False,
+    ) -> str:
+        """``GET /rest/gitplugin/1.0/issues/{key}/commits`` — commits the
+        BigBrassBand Git Integration plugin has linked to this issue.
+        Richer than dev-status: full SHAs, author name + email,
+        authorTimestamp, message, repository and branch, optional file diff.
+
+        Requires the BigBrassBand Git Integration plugin to be installed
+        (Marketplace app 4984). Returns an error payload if the plugin
+        isn't present or the caller can't view the issue.
+        """
+        fetcher = await get_jira_fetcher(ctx)
+        client = InsightClient(fetcher)
+        try:
+            return _fmt(
+                client.get(
+                    f"/rest/gitplugin/1.0/issues/{issue_key}/commits",
+                    params={"showfiles": "true" if show_files else "false"},
+                )
+            )
+        except InsightError as exc:
+            return _err(f"list_issue_commits failed: {exc}", status=exc.status)
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_git"},
+        annotations={"title": "List Issue Branches (GIJ)", "readOnlyHint": True},
+    )
+    async def list_issue_branches(
+        ctx: Context,
+        issue_key: Annotated[str, Field(description="Issue key.")],
+    ) -> str:
+        """``GET /rest/gitplugin/1.0/issues/branches?key=<key>`` — branches
+        linked to this issue by the BigBrassBand Git Integration plugin.
+
+        Returns branch name, repo reference, and (usually) last commit
+        pointer. Use this when `get_issue_git_panel` doesn't surface a
+        branch that developers are actually working on — the plugin's
+        index can be ahead of the dev-status snapshot.
+        """
+        fetcher = await get_jira_fetcher(ctx)
+        client = InsightClient(fetcher)
+        try:
+            return _fmt(
+                client.get(
+                    "/rest/gitplugin/1.0/issues/branches",
+                    params={"key": issue_key},
+                )
+            )
+        except InsightError as exc:
+            return _err(f"list_issue_branches failed: {exc}", status=exc.status)

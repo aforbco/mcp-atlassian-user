@@ -173,6 +173,15 @@ JIRA_TOOLSETS: dict[str, ToolsetDefinition] = {
         ),
         default=False,
     ),
+    "jira_user_git": ToolsetDefinition(
+        name="jira_user_git",
+        description=(
+            "Issue Git dev-panel view: counts of PRs/MRs, branches, commits "
+            "per repository across all DVCS providers. Uses dev-status + "
+            "BigBrassBand Git Integration per-issue endpoints."
+        ),
+        default=False,
+    ),
 }
 
 # --- Confluence toolsets (6) ---
