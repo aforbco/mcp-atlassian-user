@@ -101,6 +101,9 @@ Documentation is also available in [llms.txt format](https://llmstxt.org/), whic
 
 This fork adds **60 write-capable user-facing tools** for Jira Data Center — everything a day-to-day user needs that isn't in the upstream surface. All write operations honour `READ_ONLY_MODE=true` and carry `destructiveHint` annotations where appropriate.
 
+**Full tool-by-tool list with descriptions → [TOOLS.md](TOOLS.md).**
+
+
 | Toolset | Tools | What it exposes |
 |---------|-------|-----------------|
 | `jira_user_assets` | 14 | Insight/Assets full CRUD: IQL search, get/create/update/delete object, attribute/reference helpers, attach/detach Assets to Jira issues |
