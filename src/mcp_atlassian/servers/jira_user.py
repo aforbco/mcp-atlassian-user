@@ -2382,3 +2382,156 @@ def register_user_tools(jira_mcp: Any) -> None:  # noqa: C901 — many decorator
             )
         except InsightError as exc:
             return _err(f"list_issue_branches failed: {exc}", status=exc.status)
+
+    # =====================================================================
+    # Dashboards & Structures — "find what I saved by name"
+    #
+    # Neither Jira's dashboards API nor ALM Works Structure expose a
+    # server-side name search on DC (``/rest/api/2/dashboard/search`` is
+    # Cloud-only; Structure's ``/rest/structure/2.0/structure`` has no
+    # ``name`` query param). We fetch the full listing the user already
+    # has permission to see and filter by substring on the client side,
+    # which is what the issue/dashboard/structure UI does anyway.
+    # =====================================================================
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_filters"},
+        annotations={"title": "List Dashboards", "readOnlyHint": True},
+    )
+    async def list_dashboards(
+        ctx: Context,
+        name_contains: Annotated[
+            str,
+            Field(
+                description=(
+                    "Case-insensitive substring filter on dashboard name "
+                    "(applied after fetch). Leave empty to return everything "
+                    "the server returns for the selected filter."
+                )
+            ),
+        ] = "",
+        filter: Annotated[
+            str,
+            Field(
+                description=(
+                    "Server-side filter: 'favourite' = starred by the current "
+                    "user, 'my' = owned by the current user. Leave empty for "
+                    "'all visible'."
+                )
+            ),
+        ] = "",
+        max_results: Annotated[
+            int, Field(description="Server page size (1..1000).")
+        ] = 200,
+    ) -> str:
+        """``GET /rest/api/2/dashboard`` with optional client-side name filter.
+
+        DC's dashboards API has no server-side name query; use ``name_contains``
+        to narrow the response locally. ``filter=favourite`` or ``filter=my``
+        reduces the server response before the name filter is applied.
+        """
+        fetcher = await get_jira_fetcher(ctx)
+        client = InsightClient(fetcher)
+        params: dict[str, Any] = {"maxResults": max(1, min(int(max_results), 1000))}
+        if filter:
+            if filter not in ("favourite", "my"):
+                return _err("filter must be 'favourite', 'my', or empty")
+            params["filter"] = filter
+        try:
+            data = client.get("/rest/api/2/dashboard", params=params)
+        except InsightError as exc:
+            return _err(f"list_dashboards failed: {exc}", status=exc.status)
+        dashboards = (
+            data.get("dashboards") if isinstance(data, dict) else None
+        ) or []
+        if name_contains:
+            needle = name_contains.lower()
+            dashboards = [
+                d for d in dashboards if needle in (d.get("name", "") or "").lower()
+            ]
+        return _fmt(
+            {
+                "total": (data.get("total") if isinstance(data, dict) else None),
+                "returned": len(dashboards),
+                "filter": filter or "all",
+                "name_contains": name_contains,
+                "dashboards": dashboards,
+            }
+        )
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_structure"},
+        annotations={"title": "List Structures", "readOnlyHint": True},
+    )
+    async def list_structures(
+        ctx: Context,
+        name_contains: Annotated[
+            str,
+            Field(description="Case-insensitive substring filter on structure name."),
+        ] = "",
+        include_archived: Annotated[
+            bool,
+            Field(description="Include archived structures in the result."),
+        ] = False,
+    ) -> str:
+        """``GET /rest/structure/2.0/structure`` — structures the current user
+        has permission to view. Structure plugin's REST ships no ``name``
+        query param, so the filter is applied client-side.
+
+        Requires ALM Works Structure plugin installed; returns an error
+        payload if the plugin isn't present on the instance.
+        """
+        fetcher = await get_jira_fetcher(ctx)
+        client = InsightClient(fetcher)
+        try:
+            data = client.get("/rest/structure/2.0/structure")
+        except InsightError as exc:
+            return _err(
+                f"list_structures failed: {exc}",
+                status=exc.status,
+                hint=(
+                    "If HTTP 404 — the ALM Works Structure plugin is probably "
+                    "not installed on this instance."
+                ),
+            )
+        structures = (
+            data.get("structures") if isinstance(data, dict) else None
+        ) or (data if isinstance(data, list) else [])
+        if not include_archived:
+            structures = [s for s in structures if not s.get("archived")]
+        if name_contains:
+            needle = name_contains.lower()
+            structures = [
+                s
+                for s in structures
+                if needle in (s.get("name", "") or "").lower()
+            ]
+        return _fmt(
+            {
+                "returned": len(structures),
+                "name_contains": name_contains,
+                "include_archived": include_archived,
+                "structures": structures,
+            }
+        )
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_structure"},
+        annotations={"title": "Get Structure", "readOnlyHint": True},
+    )
+    async def get_structure(
+        ctx: Context,
+        structure_id: Annotated[str, Field(description="Structure id.")],
+    ) -> str:
+        """``GET /rest/structure/2.0/structure/{id}`` — single structure
+        with id, name, description, owner, archived flag and permission
+        settings. Does not fetch rows or view column configs — this is
+        intentionally the user-level surface."""
+        fetcher = await get_jira_fetcher(ctx)
+        client = InsightClient(fetcher)
+        try:
+            return _fmt(
+                client.get(f"/rest/structure/2.0/structure/{structure_id}")
+            )
+        except InsightError as exc:
+            return _err(f"get_structure failed: {exc}", status=exc.status)

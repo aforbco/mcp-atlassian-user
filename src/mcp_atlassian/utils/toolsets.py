@@ -182,6 +182,15 @@ JIRA_TOOLSETS: dict[str, ToolsetDefinition] = {
         ),
         default=False,
     ),
+    "jira_user_structure": ToolsetDefinition(
+        name="jira_user_structure",
+        description=(
+            "ALM Works Structure plugin: list structures (with name filter) "
+            "and read basic structure details via the plugin's public REST "
+            "(no ScriptRunner dependency)"
+        ),
+        default=False,
+    ),
 }
 
 # --- Confluence toolsets (6) ---

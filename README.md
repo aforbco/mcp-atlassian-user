@@ -99,7 +99,7 @@ Documentation is also available in [llms.txt format](https://llmstxt.org/), whic
 
 ## Jira DC User toolset (this fork)
 
-This fork adds **64 user-facing tools** for Jira Data Center — everything a day-to-day user needs that isn't in the upstream surface, including a read-only Git dev-panel view. All write operations honour `READ_ONLY_MODE=true` and carry `destructiveHint` annotations where appropriate.
+This fork adds **67 user-facing tools** for Jira Data Center — everything a day-to-day user needs that isn't in the upstream surface, including a read-only Git dev-panel view and saved-view lookups (dashboards + ALM Works Structure). All write operations honour `READ_ONLY_MODE=true` and carry `destructiveHint` annotations where appropriate.
 
 **Full tool-by-tool list with descriptions → [TOOLS.md](TOOLS.md).**
 
@@ -116,6 +116,8 @@ This fork adds **64 user-facing tools** for Jira Data Center — everything a da
 | `jira_user_agile` | 3 | Board extras: `get_backlog_issues`, `get_epics_from_board`, `rank_epics` (dedicated DC endpoint) |
 | `jira_user_me` | 3 | Current user context: `get_myself` (with groups/roles expand), `list_favourite_filters`, `get_my_preference` |
 | `jira_user_git` | 4 | Issue Git dev-panel view (read-only): `get_issue_git_summary` (counts of MRs/branches/commits), `get_issue_git_panel` (full unified view across providers), `list_issue_commits` + `list_issue_branches` via BigBrassBand Git Integration |
+| `jira_user_filters` (+1 tool) | 8 | `list_dashboards` added — search dashboards by name substring (server-side filter = favourite/my) |
+| `jira_user_structure` | 2 | ALM Works Structure plugin (public REST, no ScriptRunner): `list_structures` with name filter + `get_structure` |
 
 ### Verified against official DC documentation
 
