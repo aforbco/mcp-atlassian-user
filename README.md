@@ -99,15 +99,19 @@ Documentation is also available in [llms.txt format](https://llmstxt.org/), whic
 
 ## Jira DC User toolset (this fork)
 
-This fork adds **39 write-capable user-facing tools** for Jira Data Center — everything a day-to-day user needs that isn't in the upstream surface. All write operations honour `READ_ONLY_MODE=true` and carry `destructiveHint` annotations where appropriate.
+This fork adds **60 write-capable user-facing tools** for Jira Data Center — everything a day-to-day user needs that isn't in the upstream surface. All write operations honour `READ_ONLY_MODE=true` and carry `destructiveHint` annotations where appropriate.
 
 | Toolset | Tools | What it exposes |
 |---------|-------|-----------------|
 | `jira_user_assets` | 14 | Insight/Assets full CRUD: IQL search, get/create/update/delete object, attribute/reference helpers, attach/detach Assets to Jira issues |
 | `jira_user_sprints` | 5 | Sprint lifecycle: `start_sprint`, `complete_sprint`, `delete_sprint`, `move_issues_to_backlog`, `rank_issues` — complements upstream `create_sprint` / `update_sprint` / `add_issues_to_sprint` |
-| `jira_user_issues` | 10 | `add_vote` / `remove_vote`, `upload_attachment` (base64) / `delete_attachment`, `delete_comment`, `delete_worklog`, JQL-driven `bulk_assign` / `bulk_label` / `bulk_add_comment`, `clone_issue` |
-| `jira_user_jsm` | 3 | JSM user flows: `jsm_create_request`, `jsm_answer_approval` (approve/decline), `jsm_add_request_comment` (public/internal) |
+| `jira_user_issues` | 11 | `add_vote` / `remove_vote`, `upload_attachment` (base64) / `delete_attachment`, `delete_comment`, `delete_worklog`, `update_worklog`, JQL-driven `bulk_assign` / `bulk_label` / `bulk_add_comment`, `clone_issue` |
+| `jira_user_jsm` | 8 | JSM user flows: `jsm_create_request`, `jsm_answer_approval`, `jsm_add_request_comment`, `jsm_list_service_desks`, `jsm_list_request_types`, `jsm_list_participants`, `jsm_add_participants`, `jsm_remove_participants` |
 | `jira_user_filters` | 7 | Personal filters (create/update/delete/share) + dashboards (create/update/copy) |
+| `jira_user_versions` | 6 | Version lifecycle: `update_version`, `release_version`, `archive_version`, `move_version`, `merge_version`, `delete_version` |
+| `jira_user_components` | 3 | Component extensions over upstream: `update_component`, `delete_component` (with `moveIssuesTo`), `get_component_related_issue_counts` |
+| `jira_user_agile` | 3 | Board extras: `get_backlog_issues`, `get_epics_from_board`, `rank_epics` (dedicated DC endpoint) |
+| `jira_user_me` | 3 | Current user context: `get_myself` (with groups/roles expand), `list_favourite_filters`, `get_my_preference` |
 
 ### Verified against official DC documentation
 
@@ -125,6 +129,8 @@ Every endpoint was verified against the Atlassian DC docs before coding — key 
 * **Bulk edit** — no `/rest/api/2/issue/bulk/edit` on DC; `bulk_*` tools here loop per-issue with a 500-cap.
 * **Move issue to another project** — UI-only per the platform docs.
 * **Convert issue ↔ subtask** — [JRASERVER-27893](https://jira.atlassian.com/browse/JRASERVER-27893) tracks the missing endpoint; only achievable via ScriptRunner.
+* **JSM notification subscribe/unsubscribe** — `/rest/servicedeskapi/request/{key}/notification` is Cloud-only; on DC use the core watcher API (`add_watcher` / `remove_watcher`, already upstream).
+* **`/filter/my` and `/filter/search`** — Cloud-only; use `list_favourite_filters` or the `creator = currentUser()` JQL pattern.
 
 ### Enabling it
 

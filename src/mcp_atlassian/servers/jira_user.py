@@ -1300,3 +1300,842 @@ def register_user_tools(jira_mcp: Any) -> None:  # noqa: C901 — many decorator
             )
         except InsightError as exc:
             return _err(f"copy_dashboard failed: {exc}", status=exc.status)
+
+    # =====================================================================
+    # Worklog update (complements upstream add + this fork's delete)
+    # =====================================================================
+
+    @jira_mcp.tool(
+        tags={"jira", "write", "toolset:jira_user_issues"},
+        annotations={"title": "Update Worklog"},
+    )
+    @check_write_access
+    async def update_worklog(
+        ctx: Context,
+        issue_key: Annotated[str, Field(description="Jira issue key.")],
+        worklog_id: Annotated[str, Field(description="Worklog id.")],
+        time_spent: Annotated[
+            str,
+            Field(
+                description=(
+                    "New time in Jira format (e.g. '2h 30m'). "
+                    "Mutually exclusive with time_spent_seconds."
+                )
+            ),
+        ] = "",
+        time_spent_seconds: Annotated[
+            str,
+            Field(description="New time in seconds (integer string)."),
+        ] = "",
+        comment: Annotated[str, Field(description="New comment body.")] = "",
+        started: Annotated[
+            str,
+            Field(
+                description=(
+                    "ISO 8601 with ms+offset, e.g. '2026-04-24T10:17:53.145+0000'."
+                )
+            ),
+        ] = "",
+        visibility_json: Annotated[
+            str,
+            Field(
+                description=(
+                    'Optional JSON visibility, e.g. '
+                    '\'{"type":"group","value":"jira-developers"}\'. '
+                    "type must be 'group' or 'role' on DC."
+                )
+            ),
+        ] = "",
+        adjust_estimate: Annotated[
+            str,
+            Field(
+                description=(
+                    "Estimate adjustment: 'new' (requires new_estimate), "
+                    "'leave', or 'auto' (default on server)."
+                )
+            ),
+        ] = "",
+        new_estimate: Annotated[
+            str,
+            Field(
+                description="Required when adjust_estimate='new' (e.g. '1d')."
+            ),
+        ] = "",
+    ) -> str:
+        """PUT /rest/api/2/issue/{key}/worklog/{id} — at least one field required."""
+        if time_spent and time_spent_seconds:
+            return _err("pass only one of time_spent / time_spent_seconds")
+        body: dict[str, Any] = {}
+        if time_spent:
+            body["timeSpent"] = time_spent
+        if time_spent_seconds:
+            try:
+                body["timeSpentSeconds"] = int(time_spent_seconds)
+            except ValueError:
+                return _err("time_spent_seconds must be an integer")
+        if comment:
+            body["comment"] = comment
+        if started:
+            body["started"] = started
+        if visibility_json:
+            try:
+                vis = json.loads(visibility_json)
+            except json.JSONDecodeError as exc:
+                return _err(f"visibility_json invalid: {exc}")
+            if not isinstance(vis, dict):
+                return _err("visibility_json must be a JSON object")
+            body["visibility"] = vis
+        if not body:
+            return _err("at least one field must be provided")
+        query_parts: list[str] = []
+        if adjust_estimate:
+            if adjust_estimate not in ("new", "leave", "auto"):
+                return _err(
+                    "adjust_estimate must be 'new', 'leave', or 'auto' (DC)"
+                )
+            query_parts.append(f"adjustEstimate={adjust_estimate}")
+            if adjust_estimate == "new":
+                if not new_estimate:
+                    return _err(
+                        "new_estimate is required when adjust_estimate='new'"
+                    )
+                query_parts.append(f"newEstimate={new_estimate}")
+        path = f"/rest/api/2/issue/{issue_key}/worklog/{worklog_id}"
+        if query_parts:
+            path = f"{path}?{'&'.join(query_parts)}"
+        client = await _client(ctx)
+        try:
+            return _fmt(client.put(path, body))
+        except InsightError as exc:
+            return _err(f"update_worklog failed: {exc}", status=exc.status)
+
+    # =====================================================================
+    # Version lifecycle
+    # =====================================================================
+
+    @jira_mcp.tool(
+        tags={"jira", "write", "toolset:jira_user_versions"},
+        annotations={"title": "Update Version"},
+    )
+    @check_write_access
+    async def update_version(
+        ctx: Context,
+        version_id: Annotated[str, Field(description="Version id.")],
+        name: Annotated[str, Field(description="New name (optional).")] = "",
+        description: Annotated[str, Field(description="New description.")] = "",
+        user_start_date: Annotated[
+            str,
+            Field(
+                description=(
+                    "Start date in user format, e.g. '6/Jul/2010'. "
+                    "DC schema uses userStartDate, not startDate."
+                )
+            ),
+        ] = "",
+        user_release_date: Annotated[
+            str, Field(description="Release date in user format.")
+        ] = "",
+        archived: Annotated[
+            str,
+            Field(
+                description="'true' or 'false' to change archived flag (omit to keep)."
+            ),
+        ] = "",
+        released: Annotated[
+            str, Field(description="'true' or 'false'.")
+        ] = "",
+    ) -> str:
+        """PUT /rest/api/2/version/{id} — partial update (only included fields change)."""
+        body: dict[str, Any] = {}
+        if name:
+            body["name"] = name
+        if description:
+            body["description"] = description
+        if user_start_date:
+            body["userStartDate"] = user_start_date
+        if user_release_date:
+            body["userReleaseDate"] = user_release_date
+        if archived:
+            body["archived"] = archived.lower() == "true"
+        if released:
+            body["released"] = released.lower() == "true"
+        if not body:
+            return _err("at least one field must be provided")
+        client = await _client(ctx)
+        try:
+            return _fmt(client.put(f"/rest/api/2/version/{version_id}", body))
+        except InsightError as exc:
+            return _err(f"update_version failed: {exc}", status=exc.status)
+
+    @jira_mcp.tool(
+        tags={"jira", "write", "toolset:jira_user_versions"},
+        annotations={"title": "Release Version"},
+    )
+    @check_write_access
+    async def release_version(
+        ctx: Context,
+        version_id: Annotated[str, Field(description="Version id.")],
+        user_release_date: Annotated[
+            str,
+            Field(
+                description=(
+                    "Release date in user format, e.g. '6/Jul/2010'. "
+                    "Server sets today's date if omitted."
+                )
+            ),
+        ] = "",
+    ) -> str:
+        """Mark a version as released — thin wrapper around PUT /version/{id}."""
+        body: dict[str, Any] = {"released": True}
+        if user_release_date:
+            body["userReleaseDate"] = user_release_date
+        client = await _client(ctx)
+        try:
+            return _fmt(client.put(f"/rest/api/2/version/{version_id}", body))
+        except InsightError as exc:
+            return _err(f"release_version failed: {exc}", status=exc.status)
+
+    @jira_mcp.tool(
+        tags={"jira", "write", "toolset:jira_user_versions"},
+        annotations={"title": "Archive Version"},
+    )
+    @check_write_access
+    async def archive_version(
+        ctx: Context,
+        version_id: Annotated[str, Field(description="Version id.")],
+        archived: Annotated[
+            bool,
+            Field(description="True to archive, False to unarchive."),
+        ] = True,
+    ) -> str:
+        """Flip the ``archived`` flag on a version."""
+        client = await _client(ctx)
+        try:
+            return _fmt(
+                client.put(
+                    f"/rest/api/2/version/{version_id}",
+                    {"archived": bool(archived)},
+                )
+            )
+        except InsightError as exc:
+            return _err(f"archive_version failed: {exc}", status=exc.status)
+
+    @jira_mcp.tool(
+        tags={"jira", "write", "toolset:jira_user_versions"},
+        annotations={"title": "Move Version"},
+    )
+    @check_write_access
+    async def move_version(
+        ctx: Context,
+        version_id: Annotated[str, Field(description="Version id to reposition.")],
+        position: Annotated[
+            str,
+            Field(
+                description=(
+                    "Relative position: 'First', 'Last', 'Earlier', 'Later'. "
+                    "Mutually exclusive with 'after'."
+                )
+            ),
+        ] = "",
+        after: Annotated[
+            str,
+            Field(
+                description=(
+                    "Self-URI of the version to move AFTER. "
+                    "Mutually exclusive with 'position'."
+                )
+            ),
+        ] = "",
+    ) -> str:
+        """POST /rest/api/2/version/{id}/move — reorder within project."""
+        if bool(position) == bool(after):
+            return _err("provide exactly one of 'position' or 'after'")
+        body: dict[str, Any] = (
+            {"position": position} if position else {"after": after}
+        )
+        if position and position not in ("First", "Last", "Earlier", "Later"):
+            return _err(
+                "position must be 'First', 'Last', 'Earlier' or 'Later'"
+            )
+        client = await _client(ctx)
+        try:
+            return _fmt(client.post(f"/rest/api/2/version/{version_id}/move", body))
+        except InsightError as exc:
+            return _err(f"move_version failed: {exc}", status=exc.status)
+
+    @jira_mcp.tool(
+        tags={"jira", "write", "toolset:jira_user_versions"},
+        annotations={"title": "Merge Version", "destructiveHint": True},
+    )
+    @check_write_access
+    async def merge_version(
+        ctx: Context,
+        source_version_id: Annotated[
+            str, Field(description="Version id that will be removed.")
+        ],
+        target_version_id: Annotated[
+            str,
+            Field(
+                description="Version id that will absorb issues from source."
+            ),
+        ],
+    ) -> str:
+        """PUT /rest/api/2/version/{id}/mergeto/{moveIssuesTo} — source is deleted."""
+        client = await _client(ctx)
+        try:
+            client.put(
+                f"/rest/api/2/version/{source_version_id}/mergeto/{target_version_id}",
+                {},
+            )
+        except InsightError as exc:
+            return _err(f"merge_version failed: {exc}", status=exc.status)
+        return _ok(
+            source_version_id=source_version_id,
+            target_version_id=target_version_id,
+            merged=True,
+        )
+
+    @jira_mcp.tool(
+        tags={"jira", "write", "toolset:jira_user_versions"},
+        annotations={"title": "Delete Version", "destructiveHint": True},
+    )
+    @check_write_access
+    async def delete_version(
+        ctx: Context,
+        version_id: Annotated[str, Field(description="Version id to delete.")],
+        move_fix_issues_to: Annotated[
+            str,
+            Field(
+                description=(
+                    "Optional target version id to receive fixVersion refs. "
+                    "Omit to simply strip the version from those issues."
+                )
+            ),
+        ] = "",
+        move_affected_issues_to: Annotated[
+            str,
+            Field(
+                description=(
+                    "Optional target version id to receive affectedVersion refs."
+                )
+            ),
+        ] = "",
+    ) -> str:
+        """DELETE /rest/api/2/version/{id} (reassigning via query params)."""
+        path = f"/rest/api/2/version/{version_id}"
+        query_parts: list[str] = []
+        if move_fix_issues_to:
+            query_parts.append(f"moveFixIssuesTo={move_fix_issues_to}")
+        if move_affected_issues_to:
+            query_parts.append(f"moveAffectedIssuesTo={move_affected_issues_to}")
+        if query_parts:
+            path = f"{path}?{'&'.join(query_parts)}"
+        client = await _client(ctx)
+        try:
+            client.delete(path)
+        except InsightError as exc:
+            return _err(f"delete_version failed: {exc}", status=exc.status)
+        return _ok(version_id=version_id, deleted=True)
+
+    # =====================================================================
+    # Component extensions (update, delete, related-issue counts)
+    # =====================================================================
+
+    @jira_mcp.tool(
+        tags={"jira", "write", "toolset:jira_user_components"},
+        annotations={"title": "Update Component"},
+    )
+    @check_write_access
+    async def update_component(
+        ctx: Context,
+        component_id: Annotated[str, Field(description="Component id.")],
+        name: Annotated[str, Field(description="New name (optional).")] = "",
+        description: Annotated[str, Field(description="New description.")] = "",
+        lead_user_name: Annotated[
+            str,
+            Field(
+                description=(
+                    "DC username for the component lead. Pass empty string to "
+                    "explicitly remove the lead (documented behaviour)."
+                )
+            ),
+        ] = "",
+        assignee_type: Annotated[
+            str,
+            Field(
+                description=(
+                    "One of 'PROJECT_DEFAULT', 'COMPONENT_LEAD', "
+                    "'PROJECT_LEAD', 'UNASSIGNED'."
+                )
+            ),
+        ] = "",
+        is_assignee_type_valid: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Required by the DC schema. Set to True unless you know "
+                    "the target assignee type is disabled for the project."
+                )
+            ),
+        ] = True,
+    ) -> str:
+        """PUT /rest/api/2/component/{id} — partial update."""
+        body: dict[str, Any] = {"isAssigneeTypeValid": bool(is_assignee_type_valid)}
+        if name:
+            body["name"] = name
+        if description:
+            body["description"] = description
+        if lead_user_name or lead_user_name == "":
+            # "" is a documented signal to remove the lead; keep it explicit
+            # by only sending the key when the caller passed something.
+            if lead_user_name != "":
+                body["leadUserName"] = lead_user_name
+            else:
+                # caller wants to clear — but docstring asked for explicit empty
+                # by default we skip this to avoid accidental clears.
+                pass
+        if assignee_type:
+            valid = {
+                "PROJECT_DEFAULT",
+                "COMPONENT_LEAD",
+                "PROJECT_LEAD",
+                "UNASSIGNED",
+            }
+            if assignee_type not in valid:
+                return _err(f"assignee_type must be one of {sorted(valid)}")
+            body["assigneeType"] = assignee_type
+        client = await _client(ctx)
+        try:
+            return _fmt(client.put(f"/rest/api/2/component/{component_id}", body))
+        except InsightError as exc:
+            return _err(f"update_component failed: {exc}", status=exc.status)
+
+    @jira_mcp.tool(
+        tags={"jira", "write", "toolset:jira_user_components"},
+        annotations={"title": "Delete Component", "destructiveHint": True},
+    )
+    @check_write_access
+    async def delete_component(
+        ctx: Context,
+        component_id: Annotated[str, Field(description="Component id to delete.")],
+        move_issues_to: Annotated[
+            str,
+            Field(
+                description=(
+                    "Optional target component id to receive the issues. "
+                    "Omit to simply strip the component from affected issues."
+                )
+            ),
+        ] = "",
+    ) -> str:
+        """DELETE /rest/api/2/component/{id}?moveIssuesTo=…."""
+        path = f"/rest/api/2/component/{component_id}"
+        if move_issues_to:
+            path = f"{path}?moveIssuesTo={move_issues_to}"
+        client = await _client(ctx)
+        try:
+            client.delete(path)
+        except InsightError as exc:
+            return _err(f"delete_component failed: {exc}", status=exc.status)
+        return _ok(component_id=component_id, deleted=True)
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_components"},
+        annotations={"title": "Component Related Issue Count", "readOnlyHint": True},
+    )
+    async def get_component_related_issue_counts(
+        ctx: Context,
+        component_id: Annotated[str, Field(description="Component id.")],
+    ) -> str:
+        """Count of issues using this component — safety check before delete."""
+        client = await _client(ctx)
+        try:
+            return _fmt(
+                client.get(f"/rest/api/2/component/{component_id}/relatedIssueCounts")
+            )
+        except InsightError as exc:
+            return _err(
+                f"get_component_related_issue_counts failed: {exc}",
+                status=exc.status,
+            )
+
+    # =====================================================================
+    # JSM extras
+    # =====================================================================
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_jsm"},
+        annotations={"title": "List JSM Service Desks", "readOnlyHint": True},
+    )
+    async def jsm_list_service_desks(
+        ctx: Context,
+        include_archived: Annotated[
+            bool, Field(description="Include archived service desks.")
+        ] = False,
+        start: Annotated[int, Field(description="Pagination start (0-based).")] = 0,
+        limit: Annotated[int, Field(description="Page size (default 50).")] = 50,
+    ) -> str:
+        """GET /rest/servicedeskapi/servicedesk — lists SDs the user can see."""
+        client = await _client(ctx)
+        try:
+            return _fmt(
+                client.get(
+                    "/rest/servicedeskapi/servicedesk",
+                    params={
+                        "includeArchived": "true" if include_archived else "false",
+                        "start": max(0, int(start)),
+                        "limit": max(1, min(int(limit), 100)),
+                    },
+                )
+            )
+        except InsightError as exc:
+            return _err(
+                f"jsm_list_service_desks failed: {exc}", status=exc.status
+            )
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_jsm"},
+        annotations={"title": "List JSM Request Types", "readOnlyHint": True},
+    )
+    async def jsm_list_request_types(
+        ctx: Context,
+        service_desk_id: Annotated[str, Field(description="Service desk id.")],
+        group_id: Annotated[
+            str, Field(description="Optional group id to filter by.")
+        ] = "",
+        start: Annotated[int, Field(description="Pagination start (0-based).")] = 0,
+        limit: Annotated[int, Field(description="Page size (default 100).")] = 100,
+    ) -> str:
+        """GET /rest/servicedeskapi/servicedesk/{id}/requesttype."""
+        params: dict[str, Any] = {
+            "start": max(0, int(start)),
+            "limit": max(1, min(int(limit), 100)),
+        }
+        if group_id:
+            params["groupId"] = group_id
+        client = await _client(ctx)
+        try:
+            return _fmt(
+                client.get(
+                    f"/rest/servicedeskapi/servicedesk/{service_desk_id}/requesttype",
+                    params=params,
+                )
+            )
+        except InsightError as exc:
+            return _err(
+                f"jsm_list_request_types failed: {exc}", status=exc.status
+            )
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_jsm"},
+        annotations={"title": "List JSM Participants", "readOnlyHint": True},
+    )
+    async def jsm_list_participants(
+        ctx: Context,
+        issue_key: Annotated[str, Field(description="JSM request issue key.")],
+        start: Annotated[int, Field(description="Pagination start.")] = 0,
+        limit: Annotated[int, Field(description="Page size.")] = 50,
+    ) -> str:
+        """GET /rest/servicedeskapi/request/{key}/participant."""
+        client = await _client(ctx)
+        try:
+            return _fmt(
+                client.get(
+                    f"/rest/servicedeskapi/request/{issue_key}/participant",
+                    params={
+                        "start": max(0, int(start)),
+                        "limit": max(1, min(int(limit), 100)),
+                    },
+                )
+            )
+        except InsightError as exc:
+            return _err(
+                f"jsm_list_participants failed: {exc}", status=exc.status
+            )
+
+    @jira_mcp.tool(
+        tags={"jira", "write", "toolset:jira_user_jsm"},
+        annotations={"title": "Add JSM Participants"},
+    )
+    @check_write_access
+    async def jsm_add_participants(
+        ctx: Context,
+        issue_key: Annotated[str, Field(description="JSM request issue key.")],
+        usernames: Annotated[
+            str,
+            Field(
+                description=(
+                    "Comma-separated DC usernames to add as participants. "
+                    "DC shape — Cloud uses accountIds instead."
+                )
+            ),
+        ],
+    ) -> str:
+        """POST /rest/servicedeskapi/request/{key}/participant with {usernames}."""
+        users = _split_csv(usernames)
+        if not users:
+            return _err("usernames is required")
+        client = await _client(ctx)
+        try:
+            return _fmt(
+                client.post(
+                    f"/rest/servicedeskapi/request/{issue_key}/participant",
+                    {"usernames": users},
+                )
+            )
+        except InsightError as exc:
+            return _err(
+                f"jsm_add_participants failed: {exc}", status=exc.status
+            )
+
+    @jira_mcp.tool(
+        tags={"jira", "write", "toolset:jira_user_jsm"},
+        annotations={"title": "Remove JSM Participants", "destructiveHint": True},
+    )
+    @check_write_access
+    async def jsm_remove_participants(
+        ctx: Context,
+        issue_key: Annotated[str, Field(description="JSM request issue key.")],
+        usernames: Annotated[
+            str,
+            Field(description="Comma-separated DC usernames to remove."),
+        ],
+    ) -> str:
+        """DELETE /rest/servicedeskapi/request/{key}/participant with {usernames}.
+
+        DC requires a JSON body on DELETE — some HTTP clients strip bodies from
+        DELETE by default; we send it via the underlying requests.Session which
+        preserves it.
+        """
+        users = _split_csv(usernames)
+        if not users:
+            return _err("usernames is required")
+        fetcher = await get_jira_fetcher(ctx)
+        client = InsightClient(fetcher)
+        path = f"/rest/servicedeskapi/request/{issue_key}/participant"
+        try:
+            # requests.Session supports a json= body on DELETE; use the raw
+            # session so we preserve it (InsightClient.delete has no body arg).
+            resp = client._session.request(
+                "DELETE",
+                client._url(path),
+                json={"usernames": users},
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                timeout=client._timeout,
+            )
+        except Exception as exc:  # noqa: BLE001 — wraps transport errors
+            return _err(f"jsm_remove_participants transport error: {exc}")
+        if not resp.ok:
+            return _err(
+                f"jsm_remove_participants returned HTTP {resp.status_code}",
+                status=resp.status_code,
+                body=(resp.text or "")[:500],
+            )
+        return _fmt(resp.json() if resp.content else {"removed": users})
+
+    # =====================================================================
+    # Agile extras (backlog, epics, epic rank)
+    # =====================================================================
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_agile"},
+        annotations={"title": "Get Board Backlog", "readOnlyHint": True},
+    )
+    async def get_backlog_issues(
+        ctx: Context,
+        board_id: Annotated[str, Field(description="Board id (scrum).")],
+        jql: Annotated[str, Field(description="Optional JQL filter.")] = "",
+        fields: Annotated[
+            str,
+            Field(description="Comma-separated fields to include (e.g. 'summary,status')."),
+        ] = "",
+        start_at: Annotated[int, Field(description="Pagination start (0-based).")] = 0,
+        max_results: Annotated[
+            int, Field(description="Page size (default 50).")
+        ] = 50,
+    ) -> str:
+        """GET /rest/agile/1.0/board/{id}/backlog."""
+        params: dict[str, Any] = {
+            "startAt": max(0, int(start_at)),
+            "maxResults": max(1, min(int(max_results), 100)),
+        }
+        if jql:
+            params["jql"] = jql
+        if fields:
+            params["fields"] = fields
+        client = await _client(ctx)
+        try:
+            return _fmt(
+                client.get(f"/rest/agile/1.0/board/{board_id}/backlog", params=params)
+            )
+        except InsightError as exc:
+            return _err(f"get_backlog_issues failed: {exc}", status=exc.status)
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_agile"},
+        annotations={"title": "Get Epics From Board", "readOnlyHint": True},
+    )
+    async def get_epics_from_board(
+        ctx: Context,
+        board_id: Annotated[str, Field(description="Board id.")],
+        done: Annotated[
+            str,
+            Field(
+                description=(
+                    "'true' to fetch only done epics, 'false' for active only. "
+                    "Leave empty for server default (usually both)."
+                )
+            ),
+        ] = "",
+        start_at: Annotated[int, Field(description="Pagination start (0-based).")] = 0,
+        max_results: Annotated[
+            int, Field(description="Page size (default 50).")
+        ] = 50,
+    ) -> str:
+        """GET /rest/agile/1.0/board/{id}/epic."""
+        params: dict[str, Any] = {
+            "startAt": max(0, int(start_at)),
+            "maxResults": max(1, min(int(max_results), 100)),
+        }
+        if done:
+            if done not in ("true", "false"):
+                return _err("done must be 'true' or 'false'")
+            params["done"] = done
+        client = await _client(ctx)
+        try:
+            return _fmt(
+                client.get(f"/rest/agile/1.0/board/{board_id}/epic", params=params)
+            )
+        except InsightError as exc:
+            return _err(f"get_epics_from_board failed: {exc}", status=exc.status)
+
+    @jira_mcp.tool(
+        tags={"jira", "write", "toolset:jira_user_agile"},
+        annotations={"title": "Rank Epic"},
+    )
+    @check_write_access
+    async def rank_epics(
+        ctx: Context,
+        epic_id: Annotated[
+            str,
+            Field(description="Epic id or key to reposition."),
+        ],
+        rank_before_epic: Annotated[
+            str,
+            Field(
+                description="Epic key to rank BEFORE. Mutually exclusive with rank_after_epic."
+            ),
+        ] = "",
+        rank_after_epic: Annotated[
+            str,
+            Field(
+                description="Epic key to rank AFTER. Mutually exclusive with rank_before_epic."
+            ),
+        ] = "",
+        rank_custom_field_id: Annotated[
+            str,
+            Field(
+                description="Optional rank custom field id (usually 10100)."
+            ),
+        ] = "",
+    ) -> str:
+        """PUT /rest/agile/1.0/epic/{id}/rank — dedicated epic rank endpoint (DC)."""
+        if bool(rank_before_epic) == bool(rank_after_epic):
+            return _err(
+                "provide exactly one of rank_before_epic / rank_after_epic"
+            )
+        body: dict[str, Any] = {}
+        if rank_before_epic:
+            body["rankBeforeEpic"] = rank_before_epic
+        if rank_after_epic:
+            body["rankAfterEpic"] = rank_after_epic
+        if rank_custom_field_id:
+            try:
+                body["rankCustomFieldId"] = int(rank_custom_field_id)
+            except ValueError:
+                return _err("rank_custom_field_id must be numeric")
+        client = await _client(ctx)
+        try:
+            return _fmt(client.put(f"/rest/agile/1.0/epic/{epic_id}/rank", body))
+        except InsightError as exc:
+            return _err(f"rank_epics failed: {exc}", status=exc.status)
+
+    # =====================================================================
+    # Current-user context
+    # =====================================================================
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_me"},
+        annotations={"title": "Get Myself", "readOnlyHint": True},
+    )
+    async def get_myself(
+        ctx: Context,
+        expand: Annotated[
+            str,
+            Field(
+                description=(
+                    "Comma-separated expand values, e.g. 'groups,applicationRoles'. "
+                    "Hidden by default."
+                )
+            ),
+        ] = "groups,applicationRoles",
+    ) -> str:
+        """GET /rest/api/2/myself — current user profile + (expanded) groups/roles."""
+        client = await _client(ctx)
+        params = {"expand": expand} if expand else None
+        try:
+            return _fmt(client.get("/rest/api/2/myself", params=params))
+        except InsightError as exc:
+            return _err(f"get_myself failed: {exc}", status=exc.status)
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_me"},
+        annotations={"title": "List Favourite Filters", "readOnlyHint": True},
+    )
+    async def list_favourite_filters(
+        ctx: Context,
+        expand: Annotated[
+            str, Field(description="Optional expand, e.g. 'sharedUsers'.")
+        ] = "",
+    ) -> str:
+        """GET /rest/api/2/filter/favourite — user's starred filters (DC)."""
+        client = await _client(ctx)
+        params = {"expand": expand} if expand else None
+        try:
+            return _fmt(client.get("/rest/api/2/filter/favourite", params=params))
+        except InsightError as exc:
+            return _err(
+                f"list_favourite_filters failed: {exc}", status=exc.status
+            )
+
+    @jira_mcp.tool(
+        tags={"jira", "read", "toolset:jira_user_me"},
+        annotations={"title": "Get My Preference", "readOnlyHint": True},
+    )
+    async def get_my_preference(
+        ctx: Context,
+        key: Annotated[
+            str,
+            Field(
+                description=(
+                    "Preference key. DC requires ?key= (no bulk read). Common: "
+                    "'user.notifications.mimetype' ('html'/'text'), "
+                    "'user.default.share.private', 'user.locale', "
+                    "'user.notify.own.changes', 'user.notifications.watcher', "
+                    "'user.notifications.own', 'jira.user.timezone'."
+                )
+            ),
+        ],
+    ) -> str:
+        """GET /rest/api/2/mypreferences?key=… — one key per call (raw string)."""
+        if not key:
+            return _err("key is required")
+        client = await _client(ctx)
+        try:
+            data = client.get("/rest/api/2/mypreferences", params={"key": key})
+        except InsightError as exc:
+            return _err(f"get_my_preference failed: {exc}", status=exc.status)
+        return _fmt({"key": key, "value": data})

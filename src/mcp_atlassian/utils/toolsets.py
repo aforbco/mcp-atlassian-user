@@ -141,6 +141,38 @@ JIRA_TOOLSETS: dict[str, ToolsetDefinition] = {
         ),
         default=False,
     ),
+    "jira_user_versions": ToolsetDefinition(
+        name="jira_user_versions",
+        description=(
+            "Version lifecycle (DC): update/release/archive/move/merge/delete "
+            "project versions"
+        ),
+        default=False,
+    ),
+    "jira_user_components": ToolsetDefinition(
+        name="jira_user_components",
+        description=(
+            "Component CRUD (DC) — complements upstream create/list: "
+            "update, delete (with moveIssuesTo), related-issue counts"
+        ),
+        default=False,
+    ),
+    "jira_user_agile": ToolsetDefinition(
+        name="jira_user_agile",
+        description=(
+            "Board backlog + epic listing & epic ranking (DC) — complements "
+            "upstream's sprint and board tools"
+        ),
+        default=False,
+    ),
+    "jira_user_me": ToolsetDefinition(
+        name="jira_user_me",
+        description=(
+            "Current-user context: /myself, favourite filters, /mypreferences "
+            "(get/set/delete individual keys)"
+        ),
+        default=False,
+    ),
 }
 
 # --- Confluence toolsets (6) ---
