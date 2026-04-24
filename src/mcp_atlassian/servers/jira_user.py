@@ -2334,10 +2334,11 @@ def register_user_tools(jira_mcp: Any) -> None:  # noqa: C901 — many decorator
             ),
         ] = False,
     ) -> str:
-        """``GET /rest/gitplugin/1.0/issues/{key}/commits`` — commits the
-        BigBrassBand Git Integration plugin has linked to this issue.
-        Richer than dev-status: full SHAs, author name + email,
+        """List Git commits linked to a Jira issue via the BigBrassBand plugin.
+
+        Richer than the dev-status panel: full SHAs, author name + email,
         authorTimestamp, message, repository and branch, optional file diff.
+        Backed by ``GET /rest/gitplugin/1.0/issues/{key}/commits``.
 
         Requires the BigBrassBand Git Integration plugin to be installed
         (Marketplace app 4984). Returns an error payload if the plugin
@@ -2363,13 +2364,13 @@ def register_user_tools(jira_mcp: Any) -> None:  # noqa: C901 — many decorator
         ctx: Context,
         issue_key: Annotated[str, Field(description="Issue key.")],
     ) -> str:
-        """``GET /rest/gitplugin/1.0/issues/branches?key=<key>`` — branches
-        linked to this issue by the BigBrassBand Git Integration plugin.
+        """List Git branches linked to a Jira issue via the BigBrassBand plugin.
 
         Returns branch name, repo reference, and (usually) last commit
-        pointer. Use this when `get_issue_git_panel` doesn't surface a
+        pointer. Useful when ``get_issue_git_panel`` doesn't surface a
         branch that developers are actually working on — the plugin's
         index can be ahead of the dev-status snapshot.
+        Backed by ``GET /rest/gitplugin/1.0/issues/branches?key=<key>``.
         """
         fetcher = await get_jira_fetcher(ctx)
         client = InsightClient(fetcher)
@@ -2424,11 +2425,12 @@ def register_user_tools(jira_mcp: Any) -> None:  # noqa: C901 — many decorator
             int, Field(description="Server page size (1..1000).")
         ] = 200,
     ) -> str:
-        """``GET /rest/api/2/dashboard`` with optional client-side name filter.
+        """Find dashboards by name — supports substring search client-side.
 
-        DC's dashboards API has no server-side name query; use ``name_contains``
-        to narrow the response locally. ``filter=favourite`` or ``filter=my``
-        reduces the server response before the name filter is applied.
+        DC's dashboards API has no server-side name query, so we fetch and
+        filter locally. ``filter=favourite`` / ``filter=my`` narrows the
+        server response before the name filter is applied.
+        Backed by ``GET /rest/api/2/dashboard``.
         """
         fetcher = await get_jira_fetcher(ctx)
         client = InsightClient(fetcher)
@@ -2474,9 +2476,11 @@ def register_user_tools(jira_mcp: Any) -> None:  # noqa: C901 — many decorator
             Field(description="Include archived structures in the result."),
         ] = False,
     ) -> str:
-        """``GET /rest/structure/2.0/structure`` — structures the current user
-        has permission to view. Structure plugin's REST ships no ``name``
-        query param, so the filter is applied client-side.
+        """Find ALM Works Structures by name — substring search client-side.
+
+        Returns the structures the current user has permission to view.
+        The plugin's REST has no ``name`` query, so filter is applied
+        locally. Backed by ``GET /rest/structure/2.0/structure``.
 
         Requires ALM Works Structure plugin installed; returns an error
         payload if the plugin isn't present on the instance.
@@ -2523,10 +2527,11 @@ def register_user_tools(jira_mcp: Any) -> None:  # noqa: C901 — many decorator
         ctx: Context,
         structure_id: Annotated[str, Field(description="Structure id.")],
     ) -> str:
-        """``GET /rest/structure/2.0/structure/{id}`` — single structure
-        with id, name, description, owner, archived flag and permission
-        settings. Does not fetch rows or view column configs — this is
-        intentionally the user-level surface."""
+        """Get one ALM Works Structure by id — name, description, owner, archived flag, permissions.
+
+        Does not fetch rows or view column configs — that's the analyst-fork
+        admin scope. Backed by ``GET /rest/structure/2.0/structure/{id}``.
+        """
         fetcher = await get_jira_fetcher(ctx)
         client = InsightClient(fetcher)
         try:

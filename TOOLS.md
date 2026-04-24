@@ -1,15 +1,14 @@
 # Tools reference — mcp-atlassian-user
 
-67 user-facing tools for Jira Data Center, on top of 51 inherited upstream tools.
+65 user-facing tools for Jira Data Center, on top of 51 inherited upstream tools.
 
-Auto-generated from tool registrations on `feat/jira-user-toolset-v4`.
-Source: [`src/mcp_atlassian/servers/jira_user.py`](src/mcp_atlassian/servers/jira_user.py).
+Auto-generated from tool registrations. First docstring line = intent-oriented summary (verb-first, user-question style).
 
 **116 tools total across 26 toolsets.**
 
 Tool names below include the `jira_` / `confluence_` prefix that FastMCP mounts automatically.
 
-Kind legend: **read** = read-only · **write** = state-changing (disabled under `READ_ONLY_MODE`) · **write (destructive)** = carries the MCP `destructiveHint` annotation so clients prompt before executing.
+Kind legend: **read** = read-only · **write** = state-changing · **write (destructive)** = carries `destructiveHint`, MCP clients prompt before executing.
 
 ---
 
@@ -60,7 +59,7 @@ Kind legend: **read** = read-only · **write** = state-changing (disabled under 
 | `jira_update_worklog` | write | PUT /rest/api/2/issue/{key}/worklog/{id} — at least one field required. |
 | `jira_upload_attachment` | write | POST /rest/api/2/issue/{key}/attachments (multipart, ``X-Atlassian-Token: no-check``). |
 
-### `jira_user_jsm` — JSM user flows (8)
+### `jira_user_jsm` — Jira Service Management user flows (8)
 
 | Tool | Kind | Description |
 |---|---|---|
@@ -81,7 +80,7 @@ Kind legend: **read** = read-only · **write** = state-changing (disabled under 
 | `jira_create_dashboard` | write | POST /rest/api/2/dashboard. |
 | `jira_create_filter` | write | POST /rest/api/2/filter. |
 | `jira_delete_filter` | write (destructive) | DELETE /rest/api/2/filter/{id}. |
-| `jira_list_dashboards` | read | ``GET /rest/api/2/dashboard`` with optional client-side name filter. |
+| `jira_list_dashboards` | read | Find dashboards by name — supports substring search client-side. |
 | `jira_share_filter` | write | POST /rest/api/2/filter/{id}/permission — add a share permission. |
 | `jira_update_dashboard` | write | PUT /rest/api/2/dashboard/{id}. |
 | `jira_update_filter` | write | PUT /rest/api/2/filter/{id} — full replace of name/jql/description. |
@@ -127,15 +126,15 @@ Kind legend: **read** = read-only · **write** = state-changing (disabled under 
 |---|---|---|
 | `jira_get_issue_git_panel` | read | Everything the issue view's Git panel displays, unified across |
 | `jira_get_issue_git_summary` | read | Short Git panel summary for an issue — counts of pull requests, |
-| `jira_list_issue_branches` | read | ``GET /rest/gitplugin/1.0/issues/branches?key=<key>`` — branches |
-| `jira_list_issue_commits` | read | ``GET /rest/gitplugin/1.0/issues/{key}/commits`` — commits the |
+| `jira_list_issue_branches` | read | List Git branches linked to a Jira issue via the BigBrassBand plugin. |
+| `jira_list_issue_commits` | read | List Git commits linked to a Jira issue via the BigBrassBand plugin. |
 
 ### `jira_user_structure` — ALM Works Structure (public REST) (2)
 
 | Tool | Kind | Description |
 |---|---|---|
-| `jira_get_structure` | read | ``GET /rest/structure/2.0/structure/{id}`` — single structure |
-| `jira_list_structures` | read | ``GET /rest/structure/2.0/structure`` — structures the current user |
+| `jira_get_structure` | read | Get one ALM Works Structure by id — name, description, owner, archived flag, permissions. |
+| `jira_list_structures` | read | Find ALM Works Structures by name — substring search client-side. |
 
 ---
 
