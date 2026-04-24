@@ -186,7 +186,12 @@ def register_user_tools(jira_mcp: Any) -> None:  # noqa: C901 — many decorator
         tags={"jira", "read", "toolset:jira_user_assets"},
         annotations={"title": "List Asset Schemas", "readOnlyHint": True},
     )
-    async def asset_list_schemas(ctx: Context) -> str:
+    async def asset_list_schemas(ctx: Context,
+        random_string: Annotated[
+            str,
+            Field(description="Reserved — included to keep a non-empty tool schema for OpenAI-gateway compatibility."),
+        ] = "",
+    ) -> str:
         """List all Insight object schemas on the instance."""
         client = await _client(ctx)
         try:
